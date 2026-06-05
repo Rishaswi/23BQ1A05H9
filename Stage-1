@@ -1,0 +1,56 @@
+import heapq
+import math
+import requests
+from datetime import datetime, timezone
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJyaXNoaW90Ny4yMzAxQGdtYWlsLmNvbSIsImV4cCI6MTc4MDYzODA4MSwiaWF0IjoxNzgwNjM3MTgxLCJpc3MiOiJBZmZvcmQgTWVkaWNhbCBUZWNobm9sb2dpZXMgUHJpdmF0ZSBMaW1pdGVkIiwianRpIjoiZWUyYTdjZWYtYTAwNC00YTAyLWE2MTMtM2ViMTE2Y2M4YzUxIiwibG9jYWxlIjoiZW4tSU4iLCJuYW1lIjoicmlzaGFzd2kgcG9kaWxhIiwic3ViIjoiMzExOTkzMmMtM2NiZS00OWRhLTlhZTEtZjZhN2Y4YTE4NjBmIn0sImVtYWlsIjoicmlzaGlvdDcuMjMwMUBnbWFpbC5jb20iLCJuYW1lIjoicmlzaGFzd2kgcG9kaWxhIiwicm9sbE5vIjoiMjNicTFhMDVoOSIsImFjY2Vzc0NvZGUiOiJRUWRFWXkiLCJjbGllbnRJRCI6IjMxMTk5MzJjLTNjYmUtNDlkYS05YWUxLWY2YTdmOGExODYwZiIsImNsaWVudFNlY3JldCI6InNIZWNBRm1xSHp0VnhuYmEifQ.4RuYGsOHFCVaecSUA4sscW6Hnvo9BWrfiz7K1AtcZYk"
+API_URL = "http://4.224.186.213/evaluation-service/notifications"
+# weights as given: placement > result > event
+type_weight = {
+    "Placement": 3,
+    "Result": 2,
+    "Event": 1
+}
+def fetch_notifications():
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    response = requests.get(API_URL, headers=headers)
+    data = response.json()
+    return data["notifications"]
+
+def get_score(n):
+    weight = type_weight.get(n["Type"], 0)
+    # newer = higher score, using log so it decays slowly
+    ts = datetime.fromisoformat(n["Timestamp"].replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    hours_ago = (now - ts).total_seconds() / 3600
+    recency = max(0, 10 - math.log(hours_ago + 1))
+
+    return round(weight * 10 + recency, 4)
+
+def get_top_n(notifications, n=10):
+    heap = []
+    for notif in notifications:
+        score = get_score(notif)
+
+        if len(heap) < n:
+            heapq.heappush(heap, (score, notif["ID"], notif))
+        elif score > heap[0][0]:
+            heapq.heapreplace(heap, (score, notif["ID"], notif))
+
+    # sort highest to lowest
+    result = sorted(heap, key=lambda x: -x[0])
+    return result
+
+def print_inbox(top_notifications):
+    print("\n===== PRIORITY INBOX (Top 10) =====\n")
+    for i, (score, _, notif) in enumerate(top_notifications, 1):
+        print(f"#{i} [{notif['Type'].upper()}] {notif['Message']}")
+        print(f"   ID: {notif['ID']}")
+        print(f"   Time: {notif['Timestamp']}  |  Score: {score}")
+        print()
+
+
+notifications = fetch_notifications()
+print(f"Fetched {len(notifications)} notifications from API")
+
+top = get_top_n(notifications, n=10)
+print_inbox(top)
